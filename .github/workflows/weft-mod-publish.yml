@@ -1,62 +1,66 @@
-# Tests weftmod.py, then runs the build and release actions on tests/fixture, as a mod repository
-# would, without making a release. Last, checks the package they made.
-name: Test
+# Copy to .github/workflows/release.yml in your mod's repository.
+# On every push to main: a mod whose Cargo.toml version has no release yet is released at that
+# version; a mod that changed since its newest release gets a release candidate,
+# X.Y.(Z+1)-rc.<run>.g<commit>. Each release holds <id>.zip, the mod's libraries and assets.
+# Off by default: the index-pr job proposes each full release to the Weft mod index. To turn it
+# on, add the secret WEFT_INDEX_TOKEN (see README.md) and the repository variable
+# WEFT_INDEX_PR = true (Settings > Secrets and variables > Actions > Variables).
+name: Release
 
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
-jobs:
-  unit:
-    strategy:
-      matrix:
-        python: ["3.10", "3.14"]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: ${{ matrix.python }}
-      - run: python -m unittest discover -s tests -v
+# A run plans from the tags the one before it made.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
+jobs:
   build:
     strategy:
-      fail-fast: false
       matrix:
+        # ubuntu-22.04: a Linux library runs on the glibc it was built with or newer.
         os: [windows-latest, ubuntu-22.04, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: ./build
         with:
-          mods: tests/fixture
+          submodules: true # if Weft is a submodule
+      - uses: Zorro909/weft-mod-action/build@v2
+        # with:
+        #   mods: |          # the mod folders; default: the repository root
+        #     cogwork
+        #     structures
 
   release:
     needs: build
     runs-on: ubuntu-latest
+    outputs:
+      releases: ${{ steps.release.outputs.releases }}
+    permissions:
+      contents: write     # the releases
     steps:
       - uses: actions/checkout@v7
-      - id: release
-        uses: ./release
         with:
-          github-release: false
-      - name: Check the package
-        env:
-          TAGS: ${{ steps.release.outputs.tags }}
-        run: |
-          set -euo pipefail
-          test "$TAGS" = hello_weft-v0.1.0
-          dist="$RUNNER_TEMP/weft-mod-dist/$TAGS"
-          unzip -l "$dist/hello_weft.zip"
-          python3 - "$dist" <<'EOF'
-          import sys, zipfile
-          from pathlib import Path
-          z = zipfile.ZipFile(Path(sys.argv[1]) / "hello_weft.zip")
-          assert {"hello_weft.dll", "libhello_weft.so", "libhello_weft.dylib",
-                  "assets/lang/en_us.lang", "assets/textures/gui/icon.png"} == set(z.namelist())
-          EOF
+          submodules: true
+      - id: release
+        uses: Zorro909/weft-mod-action/release@v2
+
+  # Each full release (X.Y.Z, not a release candidate), to the Weft mod index.
+  index-pr:
+    needs: release
+    if: needs.release.outputs.releases != '' && vars.WEFT_INDEX_PR == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Zorro909/weft-mod-action/index-pr@v2
+        with:
+          token: ${{ secrets.WEFT_INDEX_TOKEN }}
+          tags: ${{ needs.release.outputs.releases }}
+          # mods: |          # the same folders as above
+          #   cogwork
+          #   structures
