@@ -32,9 +32,9 @@ jobs:
         with:
           submodules: true # if Weft is a submodule
       - uses: Zorro909/weft-mod-action/build@v2
-        # with:
-        #   mods: |          # the mod folders; default: the repository root
-        #     cogwork
+         with:
+           mods: |          # the mod folders; default: the repository root
+             brett_goldarmor
         #     structures
 
   release:
