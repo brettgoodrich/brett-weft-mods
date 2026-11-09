@@ -1,0 +1,62 @@
+# Tests weftmod.py, then runs the build and release actions on tests/fixture, as a mod repository
+# would, without making a release. Last, checks the package they made.
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    strategy:
+      matrix:
+        python: ["3.10", "3.14"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests -v
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./build
+        with:
+          mods: tests/fixture
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - id: release
+        uses: ./release
+        with:
+          github-release: false
+      - name: Check the package
+        env:
+          TAGS: ${{ steps.release.outputs.tags }}
+        run: |
+          set -euo pipefail
+          test "$TAGS" = hello_weft-v0.1.0
+          dist="$RUNNER_TEMP/weft-mod-dist/$TAGS"
+          unzip -l "$dist/hello_weft.zip"
+          python3 - "$dist" <<'EOF'
+          import sys, zipfile
+          from pathlib import Path
+          z = zipfile.ZipFile(Path(sys.argv[1]) / "hello_weft.zip")
+          assert {"hello_weft.dll", "libhello_weft.so", "libhello_weft.dylib",
+                  "assets/lang/en_us.lang", "assets/textures/gui/icon.png"} == set(z.namelist())
+          EOF
