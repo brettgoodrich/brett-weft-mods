@@ -1,4 +1,5 @@
-== Mod Spec: THREAT!
+Mod Spec: THREAT!
+=
 
 *I'm still getting a handle on Weft/Rust, so I've decided to write a spec before I start the mod so I can get feedback from the jump.*
 
